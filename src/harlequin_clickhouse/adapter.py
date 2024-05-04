@@ -54,10 +54,12 @@ class HarlequinClickHouseConnection(HarlequinConnection):
         options: dict[str, Any],
     ) -> None:
         self.init_message = init_message
+        self.conn_str = conn_str
         try:
-            if conn_str and conn_str[0]:
+            if len(conn_str) == 1:
                 self.conn = connect(conn_str[0], **options)
                 cur = self.conn.cursor()
+                cur.execute("SELECT 1")
         except Exception as e:
             raise HarlequinConnectionError(
                 msg=str(e),
