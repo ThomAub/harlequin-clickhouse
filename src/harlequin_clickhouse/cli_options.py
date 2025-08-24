@@ -36,15 +36,15 @@ port = TextOption(
 
 database = TextOption(
     name="database",
-    description=("The database name to use when connecting with the Postgres server."),
+    description=("The database name to use when connecting with the ClickHouse server."),
     short_decls=["-d"],
-    default="postgres",
+    default="default",
 )
 
 
 user = TextOption(
     name="user",
-    description=("PostgreSQL user name to connect as."),
+    description=("ClickHouse user name to connect as."),
     short_decls=["-u", "--username", "-U"],
 )
 
