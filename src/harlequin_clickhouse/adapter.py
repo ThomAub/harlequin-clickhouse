@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
+from clickhouse_driver.dbapi import Connection, connect
 from harlequin import (
     HarlequinAdapter,
     HarlequinConnection,
@@ -10,8 +11,6 @@ from harlequin import (
 from harlequin.autocomplete.completion import HarlequinCompletion
 from harlequin.catalog import Catalog, CatalogItem
 from harlequin.exception import HarlequinConnectionError, HarlequinQueryError
-from clickhouse_driver.dbapi import connect, Connection
-from clickhouse_driver.dbapi.cursor import Cursor
 from textual_fastdatatable.backend import AutoBackendType
 
 from harlequin_clickhouse.cli_options import CLICKHOUSE_OPTIONS
@@ -46,8 +45,6 @@ class HarlequinClickHouseCursor(HarlequinCursor):
 
 
 class HarlequinClickHouseConnection(HarlequinConnection):
-
-
     def __init__(
         self,
         conn_str: Sequence[str],
@@ -59,7 +56,7 @@ class HarlequinClickHouseConnection(HarlequinConnection):
         self.conn_str = conn_str
         try:
             if len(conn_str) == 1:
-                self.conn = connect(conn_str, **options)
+                self.conn = connect(conn_str[0], **options)
             else:
                 self.conn = connect(**options)
             cur = self.conn.cursor()
@@ -67,7 +64,7 @@ class HarlequinClickHouseConnection(HarlequinConnection):
         except Exception as e:
             raise HarlequinConnectionError(
                 msg=str(e),
-                title="Harlequin could not connect to your ClickHouse with `clickhouse_driver`.",
+                title="Harlequin could not connect to your ClickHouse with clickhouse_driver.",
             ) from e
 
     def execute(self, query: str) -> HarlequinCursor | None:
@@ -86,7 +83,8 @@ class HarlequinClickHouseConnection(HarlequinConnection):
                 return None
 
     def get_catalog(self) -> Catalog:
-        # This is a small hack to overcome the fact that clickhouse doesn't have the concept of schemas
+        # This is a small hack to overcome the fact that clickhouse doesn't
+        # have the concept of schemas
         databases = self._list_databases()
         database_items: list[CatalogItem] = []
         for (db,) in databases:
@@ -110,7 +108,7 @@ class HarlequinClickHouseConnection(HarlequinConnection):
                         label=rel,
                         type_label="v" if rel_type == "VIEW" else "t",
                         children=col_items,
-                    )
+                    ),
                 )
             database_items.append(
                 CatalogItem(
@@ -119,7 +117,7 @@ class HarlequinClickHouseConnection(HarlequinConnection):
                     label=db,
                     type_label="s",
                     children=rel_items,
-                )
+                ),
             )
         return Catalog(items=database_items)
 
@@ -146,7 +144,7 @@ class HarlequinClickHouseConnection(HarlequinConnection):
                 FROM system.databases
                 where name not in
                     ('INFORMATION_SCHEMA', 'system', 'information_schema');
-            """
+            """,
             )
             results: list[tuple[str]] = cur.fetchall()
         return results

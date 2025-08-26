@@ -4,13 +4,13 @@ import pytest
 from harlequin.adapter import HarlequinAdapter, HarlequinConnection, HarlequinCursor
 from harlequin.catalog import Catalog, CatalogItem
 from harlequin.exception import HarlequinConnectionError, HarlequinQueryError
+from testcontainers.clickhouse import ClickHouseContainer
+from textual_fastdatatable.backend import create_backend
+
 from harlequin_clickhouse.adapter import (
     HarlequinClickHouseAdapter,
     HarlequinClickHouseConnection,
-    HarlequinClickHouseCursor,
 )
-from textual_fastdatatable.backend import create_backend
-from testcontainers.clickhouse import ClickHouseContainer
 
 if sys.version_info < (3, 10):
     from importlib_metadata import entry_points
@@ -48,6 +48,20 @@ def test_init_extra_kwargs() -> None:
 def test_connect_raises_connection_error() -> None:
     with pytest.raises(HarlequinConnectionError):
         _ = HarlequinClickHouseAdapter(conn_str=("foo",)).connect()
+
+
+def test_connection_handles_tuple_conn_str() -> None:
+    """Test that HarlequinClickHouseConnection properly handles tuple conn_str parameter"""
+    clickhouse = ClickHouseContainer("clickhouse/clickhouse-server:23.4")
+    clickhouse.start()
+    conn_str = clickhouse.get_connection_url()
+
+    # Test that connection works when conn_str is passed as tuple
+    conn = HarlequinClickHouseConnection(conn_str=(conn_str,), options={})
+    assert conn.conn_str == (conn_str,)
+    assert conn.conn is not None
+
+    clickhouse.stop()
 
 
 @pytest.fixture(scope="module")
@@ -89,7 +103,7 @@ def test_execute_select(connection_setup: HarlequinClickHouseConnection) -> None
 
 @pytest.mark.skip(
     reason="ClickHouse does not support duplicate column names in a select statement."
-    "DB::Exception: Different expressions with the same alias a"
+    "DB::Exception: Different expressions with the same alias a",
 )
 def test_execute_select_dupe_cols(
     connection_setup: HarlequinClickHouseConnection,
@@ -105,7 +119,7 @@ def test_execute_select_dupe_cols(
 
 def test_set_limit(connection_setup: HarlequinClickHouseConnection) -> None:
     cur = connection_setup.execute(
-        "select 1 as a union all select 2 union all select 3"
+        "select 1 as a union all select 2 union all select 3",
     )
     assert isinstance(cur, HarlequinCursor)
     cur = cur.set_limit(2)
