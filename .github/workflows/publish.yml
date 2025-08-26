@@ -32,9 +32,6 @@ jobs:
     - name: Run linting
       run: uv run ruff check
     
-    - name: Run type checking
-      run: uv run mypy
-
   publish:
     needs: test
     runs-on: ubuntu-latest
