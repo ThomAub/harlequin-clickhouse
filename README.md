@@ -1,9 +1,34 @@
-# harlequin-adapter-template
+# harlequin-clickhouse
 
-This repo provides the Harlequin adapter for clickhouse.
-It is based on the [harlequin-adapter-template](https://github.com/tconbeer/harlequin-adapter-template)
+A Harlequin adapter for ClickHouse databases.
 
-See [Harlequin](https://harlequin.sh) docs for more database adapter.
+## Installation
+
+You must install the `harlequin-clickhouse` package into the same environment as harlequin. The best and easiest way to do this is to use uv to install Harlequin with the additional package:
+
+```bash
+uv tool install harlequin --with harlequin-clickhouse
+```
+
+## Usage and Configuration
+
+Run Harlequin with the `-a clickhouse` option and pass a ClickHouse DSN as an argument:
+
+```bash
+harlequin -a clickhouse "clickhouse://default:@localhost:9000/default"
+```
+
+You can also pass all or parts of the connection string as separate options. The following is equivalent to the above DSN:
+
+```bash
+harlequin -a clickhouse --host localhost --port 9000 --database default --user default
+```
+
+Many more options are available; to see the full list, run:
+
+```bash
+harlequin -a clickhouse --help
+```
 
 ## Setup ClickHouse
 

@@ -1,5 +1,4 @@
 from __future__ import annotations
-from enum import verify
 
 from harlequin.options import (
     FlagOption,  # noqa
@@ -26,8 +25,7 @@ host = TextOption(
 port = TextOption(
     name="port",
     description=(
-        "Port number to connect to at the server host, or socket file name extension "
-        "for Unix-domain connections."
+        "Port number to connect to at the server host, or socket file name extension for Unix-domain connections."
     ),
     short_decls=["-p"],
     default="9000",
@@ -96,10 +94,11 @@ secure = TextOption(
     default="False",
 )
 
-verify = TextOption(
+verify_ssl = TextOption(
     name="verify",
     description=(
-        "Specifies whether a certificate is required and whether it will be validated after connection. Defaults to True."
+        "Specifies whether a certificate is required and whether it will be "
+        "validated after connection. Defaults to True."
     ),
     validator=_bool_validator,
     default="True",
@@ -114,5 +113,5 @@ CLICKHOUSE_OPTIONS = [
     connect_timeout,
     send_receive_timeout,
     secure,
-    verify,
+    verify_ssl,
 ]
