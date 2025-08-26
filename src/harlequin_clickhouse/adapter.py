@@ -46,6 +46,8 @@ class HarlequinClickHouseCursor(HarlequinCursor):
 
 
 class HarlequinClickHouseConnection(HarlequinConnection):
+
+
     def __init__(
         self,
         conn_str: Sequence[str],
@@ -57,9 +59,11 @@ class HarlequinClickHouseConnection(HarlequinConnection):
         self.conn_str = conn_str
         try:
             if len(conn_str) == 1:
-                self.conn = connect(conn_str[0], **options)
-                cur = self.conn.cursor()
-                cur.execute("SELECT 1")
+                self.conn = connect(conn_str, **options)
+            else:
+                self.conn = connect(**options)
+            cur = self.conn.cursor()
+            cur.execute("SELECT 1")
         except Exception as e:
             raise HarlequinConnectionError(
                 msg=str(e),
