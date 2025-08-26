@@ -1,6 +1,6 @@
 [project]
 name = "harlequin-clickhouse"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Harlequin adapter for Clickhouse"
 authors = [{ name = "Thomaub", email = "github.thomaub@gmail.com" }]
 license = { text = "MIT" }
