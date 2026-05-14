@@ -85,11 +85,15 @@ class HarlequinClickHouseHttpConnection(ClickHouseCatalogMixin, HarlequinConnect
         if options.get("verify") is not None:
             kwargs["verify"] = options["verify"].lower() == "true"
 
+        # Disable compression by default — proxies often strip Content-Encoding
+        # headers, causing the lz4 decompressor to fail on uncompressed data.
+        kwargs.setdefault("compress", False)
+
         return kwargs
 
     def execute(self, query: str) -> HarlequinCursor | None:
         try:
-            result = self.client.query(query)
+            result = self.client.query(query.rstrip("; \t\n"))
         except Exception as e:
             raise HarlequinQueryError(
                 msg=str(e),
