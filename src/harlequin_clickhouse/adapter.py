@@ -16,75 +16,13 @@ from textual_fastdatatable.backend import AutoBackendType
 from harlequin_clickhouse.cli_options import CLICKHOUSE_OPTIONS
 
 
-class HarlequinClickHouseCursor(HarlequinCursor):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.cur = args[0]
-        self._limit: int | None = None
+class ClickHouseCatalogMixin:
+    """Shared catalog and completion logic for both native and HTTP connections."""
 
-    def columns(self) -> list[tuple[str, str]]:
-        # names = self.cur.column_names
-        # types = self.cur.column_types
-        # return list(zip(names, types))
-        return self.cur.columns_with_types
-
-    def set_limit(self, limit: int) -> HarlequinClickHouseCursor:
-        self._limit = limit
-        return self
-
-    def fetchall(self) -> AutoBackendType:
-        try:
-            if self._limit is None:
-                return self.cur.fetchall()
-            else:
-                return self.cur.fetchmany(self._limit)
-        except Exception as e:
-            raise HarlequinQueryError(
-                msg=str(e),
-                title="Harlequin encountered an error while executing your query.",
-            ) from e
-
-
-class HarlequinClickHouseConnection(HarlequinConnection):
-    def __init__(
-        self,
-        conn_str: Sequence[str],
-        *args: Any,
-        init_message: str = "Welcome to ClickHouse with harlequin",
-        options: dict[str, Any],
-    ) -> None:
-        self.init_message = init_message
-        self.conn_str = conn_str
-        try:
-            if len(conn_str) == 1:
-                self.conn = connect(conn_str[0], **options)
-            else:
-                self.conn = connect(**options)
-            cur = self.conn.cursor()
-            cur.execute("SELECT 1")
-        except Exception as e:
-            raise HarlequinConnectionError(
-                msg=str(e),
-                title="Harlequin could not connect to your ClickHouse with clickhouse_driver.",
-            ) from e
-
-    def execute(self, query: str) -> HarlequinCursor | None:
-        try:
-            cur = self.conn.cursor()
-            cur.execute(query)
-        except Exception as e:
-            raise HarlequinQueryError(
-                msg=str(e),
-                title="Harlequin encountered an error while executing your query.",
-            ) from e
-        else:
-            if cur.description:
-                return HarlequinClickHouseCursor(cur)
-            else:
-                return None
+    def _execute_catalog_query(self, sql: str) -> list[tuple]:
+        raise NotImplementedError
 
     def get_catalog(self) -> Catalog:
-        # This is a small hack to overcome the fact that clickhouse doesn't
-        # have the concept of schemas
         databases = self._list_databases()
         database_items: list[CatalogItem] = []
         for (db,) in databases:
@@ -135,57 +73,34 @@ class HarlequinClickHouseConnection(HarlequinConnection):
         ]
 
     def _list_databases(self) -> list[tuple[str]]:
-        conn: Connection = self.conn
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT
-                    name
-                FROM system.databases
-                where name not in
-                    ('INFORMATION_SCHEMA', 'system', 'information_schema');
-            """,
-            )
-            results: list[tuple[str]] = cur.fetchall()
-        return results
+        return self._execute_catalog_query(
+            """
+            SELECT name
+            FROM system.databases
+            WHERE name NOT IN ('INFORMATION_SCHEMA', 'system', 'information_schema')
+            """
+        )
 
     def _list_relations_in_database(self, db: str) -> list[tuple[str, str]]:
-        conn: Connection = self.conn
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT
-                    table_name,
-                    table_type
-                FROM information_schema.tables
-                WHERE
-                    table_schema = '{db}'
-                ORDER BY table_name asc
-                    """,
-            )
-            results: list[tuple[str]] = cur.fetchall()
-        return results
+        return self._execute_catalog_query(
+            f"""
+            SELECT table_name, table_type
+            FROM information_schema.tables
+            WHERE table_schema = '{db}'
+            ORDER BY table_name ASC
+            """
+        )
 
-    def _list_columns_in_relation(
-        self,
-        db: str,
-        relation: str,
-    ) -> list[tuple[str, str]]:
-        conn: Connection = self.conn
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                select
-                    column_name, data_type
-                from information_schema.columns
-                where
-                    table_schema = '{db}'
-                    and table_name = '{relation}'
-                    order by ordinal_position asc
-                    """,
-            )
-            results: list[tuple[str]] = cur.fetchall()
-        return results
+    def _list_columns_in_relation(self, db: str, relation: str) -> list[tuple[str, str]]:
+        return self._execute_catalog_query(
+            f"""
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = '{db}'
+              AND table_name = '{relation}'
+            ORDER BY ordinal_position ASC
+            """
+        )
 
     @staticmethod
     def _get_short_type(type_name: str) -> str:
@@ -237,6 +152,76 @@ class HarlequinClickHouseConnection(HarlequinConnection):
         return MAPPING.get(type_name.split("(")[0].split(" ")[0], "?")
 
 
+class HarlequinClickHouseCursor(HarlequinCursor):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.cur = args[0]
+        self._limit: int | None = None
+
+    def columns(self) -> list[tuple[str, str]]:
+        return self.cur.columns_with_types
+
+    def set_limit(self, limit: int) -> HarlequinClickHouseCursor:
+        self._limit = limit
+        return self
+
+    def fetchall(self) -> AutoBackendType:
+        try:
+            if self._limit is None:
+                return self.cur.fetchall()
+            else:
+                return self.cur.fetchmany(self._limit)
+        except Exception as e:
+            raise HarlequinQueryError(
+                msg=str(e),
+                title="Harlequin encountered an error while executing your query.",
+            ) from e
+
+
+class HarlequinClickHouseConnection(ClickHouseCatalogMixin, HarlequinConnection):
+    def __init__(
+        self,
+        conn_str: Sequence[str],
+        *args: Any,
+        init_message: str = "Welcome to ClickHouse with harlequin",
+        options: dict[str, Any],
+    ) -> None:
+        self.init_message = init_message
+        self.conn_str = conn_str
+        try:
+            if len(conn_str) == 1:
+                self.conn = connect(conn_str[0], **options)
+            else:
+                self.conn = connect(**options)
+            cur = self.conn.cursor()
+            cur.execute("SELECT 1")
+        except Exception as e:
+            raise HarlequinConnectionError(
+                msg=str(e),
+                title="Harlequin could not connect to your ClickHouse with clickhouse_driver.",
+            ) from e
+
+    def execute(self, query: str) -> HarlequinCursor | None:
+        try:
+            cur = self.conn.cursor()
+            cur.execute(query)
+        except Exception as e:
+            raise HarlequinQueryError(
+                msg=str(e),
+                title="Harlequin encountered an error while executing your query.",
+            ) from e
+        else:
+            if cur.description:
+                return HarlequinClickHouseCursor(cur)
+            else:
+                return None
+
+    def _execute_catalog_query(self, sql: str) -> list[tuple]:
+        conn: Connection = self.conn
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            return cur.fetchall()
+
+
 class HarlequinClickHouseAdapter(HarlequinAdapter):
     ADAPTER_OPTIONS = CLICKHOUSE_OPTIONS
 
@@ -244,9 +229,29 @@ class HarlequinClickHouseAdapter(HarlequinAdapter):
         self.conn_str = conn_str
         self.options = options
 
-    def connect(self) -> HarlequinClickHouseConnection:
-        conn = HarlequinClickHouseConnection(
-            conn_str=self.conn_str,
-            options=self.options,
-        )
-        return conn
+    def connect(self) -> HarlequinConnection:
+        options = dict(self.options)
+        protocol = options.pop("protocol", "native")
+
+        if options.get("port") is None:
+            options["port"] = "8123" if protocol == "http" else "9000"
+
+        if protocol == "http":
+            try:
+                import clickhouse_connect  # noqa: F401
+            except ImportError as e:
+                raise HarlequinConnectionError(
+                    msg='To use HTTP protocol, install the http extra: pip install "harlequin-clickhouse[http]"',
+                    title="Missing dependency for HTTP protocol.",
+                ) from e
+            from harlequin_clickhouse.http_connection import HarlequinClickHouseHttpConnection
+
+            return HarlequinClickHouseHttpConnection(
+                conn_str=self.conn_str,
+                options=options,
+            )
+        else:
+            return HarlequinClickHouseConnection(
+                conn_str=self.conn_str,
+                options=options,
+            )
