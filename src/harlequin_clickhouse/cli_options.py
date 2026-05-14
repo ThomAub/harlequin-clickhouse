@@ -4,8 +4,39 @@ from harlequin.options import (
     FlagOption,  # noqa
     ListOption,  # noqa
     PathOption,  # noqa
-    SelectOption,  # noqa
+    SelectOption,
     TextOption,
+)
+
+
+def _int_validator(s: str | None) -> tuple[bool, str]:
+    if s is None:
+        return True, ""
+    try:
+        _ = int(s)
+    except ValueError:
+        return False, f"Cannot convert {s} to an int!"
+    else:
+        return True, ""
+
+
+def _bool_validator(s: str | None) -> tuple[bool, str]:
+    if s is None:
+        return True, ""
+    if s.lower() not in ["true", "false"]:
+        return False, f"{s} is not a valid boolean value!"
+    return True, ""
+
+
+protocol = SelectOption(
+    name="protocol",
+    description=(
+        "The wire protocol to use for connecting to ClickHouse. "
+        "'native' uses clickhouse-driver (TCP, default port 9000). "
+        "'http' uses clickhouse-connect (HTTP, default port 8123)."
+    ),
+    choices=["native", "http"],
+    default="native",
 )
 
 # All configuration options for the ClickHouse adapter
@@ -25,10 +56,12 @@ host = TextOption(
 port = TextOption(
     name="port",
     description=(
-        "Port number to connect to at the server host, or socket file name extension for Unix-domain connections."
+        "Port number to connect to at the server host, or socket file name extension for Unix-domain connections. "
+        "Defaults to 9000 for native protocol and 8123 for HTTP protocol."
     ),
     short_decls=["-p"],
-    default="9000",
+    default=None,
+    validator=_int_validator,
 )
 
 
@@ -51,25 +84,6 @@ password = TextOption(
     name="password",
     description=("Password to be used if the server demands password authentication."),
 )
-
-
-def _int_validator(s: str | None) -> tuple[bool, str]:
-    if s is None:
-        return True, ""
-    try:
-        _ = int(s)
-    except ValueError:
-        return False, f"Cannot convert {s} to an int!"
-    else:
-        return True, ""
-
-
-def _bool_validator(s: str | None) -> tuple[bool, str]:
-    if s is None:
-        return True, ""
-    if s.lower() not in ["true", "false"]:
-        return False, f"{s} is not a valid boolean value!"
-    return True, ""
 
 
 connect_timeout = TextOption(
@@ -105,6 +119,7 @@ verify_ssl = TextOption(
 )
 
 CLICKHOUSE_OPTIONS = [
+    protocol,
     host,
     port,
     database,
