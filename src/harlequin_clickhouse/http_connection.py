@@ -9,6 +9,21 @@ from textual_fastdatatable.backend import AutoBackendType
 
 from harlequin_clickhouse.adapter import ClickHouseCatalogMixin
 
+# Statements that return rows. Anything else (CREATE, INSERT, DROP, ...) runs as a
+# command, because over HTTP ClickHouse answers those with a summary row.
+ROW_RETURNING = ("select", "with", "show", "describe", "desc", "explain", "exists")
+
+
+def _returns_rows(query: str) -> bool:
+    text = query.lstrip().lstrip("(").lstrip()
+    while text.startswith(("--", "/*")):
+        end = text.find("\n") if text.startswith("--") else text.find("*/") + 1
+        if end <= 0:
+            return False
+        text = text[end + 1 :].lstrip().lstrip("(").lstrip()
+    words = text.split(None, 1)
+    return bool(words) and words[0].lower() in ROW_RETURNING
+
 
 class HarlequinClickHouseHttpCursor(HarlequinCursor):
     def __init__(self, query_result: Any) -> None:
@@ -92,8 +107,12 @@ class HarlequinClickHouseHttpConnection(ClickHouseCatalogMixin, HarlequinConnect
         return kwargs
 
     def execute(self, query: str) -> HarlequinCursor | None:
+        sql = query.rstrip("; \t\n")
         try:
-            result = self.client.query(query.rstrip("; \t\n"))
+            if not _returns_rows(sql):
+                self.client.command(sql)
+                return None
+            result = self.client.query(sql)
         except Exception as e:
             raise HarlequinQueryError(
                 msg=str(e),

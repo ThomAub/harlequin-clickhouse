@@ -12,7 +12,7 @@ from harlequin_clickhouse.adapter import (
     HarlequinClickHouseAdapter,
     HarlequinClickHouseConnection,
 )
-from harlequin_clickhouse.http_connection import HarlequinClickHouseHttpConnection
+from harlequin_clickhouse.http_connection import HarlequinClickHouseHttpConnection, _returns_rows
 
 if sys.version_info < (3, 10):
     from importlib_metadata import entry_points
@@ -197,3 +197,19 @@ def test_execute_raises_query_error(
 ) -> None:
     with pytest.raises(HarlequinQueryError):
         _ = connection_setup.execute("selec;")
+
+
+@pytest.mark.parametrize(
+    "query, returns_rows",
+    [
+        ("select 1", True),
+        ("  WITH x AS (SELECT 1) SELECT * FROM x", True),
+        ("-- comment\nSHOW TABLES", True),
+        ("/* comment */ DESCRIBE foo", True),
+        ("CREATE TABLE foo (a Int16) ENGINE = Memory", False),
+        ("INSERT INTO foo VALUES (1)", False),
+        ("DROP TABLE foo", False),
+    ],
+)
+def test_http_returns_rows(query: str, returns_rows: bool) -> None:
+    assert _returns_rows(query) is returns_rows
