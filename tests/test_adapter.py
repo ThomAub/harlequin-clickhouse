@@ -48,9 +48,9 @@ def test_connect_http() -> None:
         protocol="http",
         host=host,
         port=str(port),
-        user="default",
-        password="",
-        database="default",
+        user=clickhouse.username,
+        password=clickhouse.password,
+        database=clickhouse.dbname,
     ).connect()
     assert isinstance(conn, HarlequinClickHouseHttpConnection)
     clickhouse.stop()
@@ -134,9 +134,9 @@ def connection_setup(request):
             protocol="http",
             host=host,
             port=str(port),
-            user="default",
-            password="",
-            database="default",
+            user=clickhouse.username,
+            password=clickhouse.password,
+            database=clickhouse.dbname,
         ).connect()
 
 
