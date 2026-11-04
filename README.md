@@ -24,6 +24,16 @@ You can also pass all or parts of the connection string as separate options. The
 harlequin -a clickhouse --host localhost --port 9000 --database default --user default
 ```
 
+### HTTP protocol
+
+By default the adapter uses ClickHouse's native protocol (port 9000). To connect over HTTP
+(port 8123), install the `http` extra and pass `--protocol http`:
+
+```bash
+uv tool install harlequin --with "harlequin-clickhouse[http]"
+harlequin -a clickhouse --protocol http --host localhost --database default --user default
+```
+
 Many more options are available; to see the full list, run:
 
 ```bash

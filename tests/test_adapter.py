@@ -1,4 +1,5 @@
 import sys
+from unittest.mock import patch
 
 import pytest
 from harlequin.adapter import HarlequinAdapter, HarlequinConnection, HarlequinCursor
@@ -11,6 +12,7 @@ from harlequin_clickhouse.adapter import (
     HarlequinClickHouseAdapter,
     HarlequinClickHouseConnection,
 )
+from harlequin_clickhouse.http_connection import HarlequinClickHouseHttpConnection, _returns_rows
 
 if sys.version_info < (3, 10):
     from importlib_metadata import entry_points
@@ -36,6 +38,24 @@ def test_connect() -> None:
     clickhouse.stop()
 
 
+def test_connect_http() -> None:
+    clickhouse = ClickHouseContainer("clickhouse/clickhouse-server:23.4")
+    clickhouse.start()
+    host = clickhouse.get_container_host_ip()
+    port = clickhouse.get_exposed_port(8123)
+    conn = HarlequinClickHouseAdapter(
+        conn_str=(),
+        protocol="http",
+        host=host,
+        port=str(port),
+        user=clickhouse.username,
+        password=clickhouse.password,
+        database=clickhouse.dbname,
+    ).connect()
+    assert isinstance(conn, HarlequinClickHouseHttpConnection)
+    clickhouse.stop()
+
+
 def test_init_extra_kwargs() -> None:
     clickhouse = ClickHouseContainer("clickhouse/clickhouse-server:23.4")
     clickhouse.start()
@@ -50,13 +70,37 @@ def test_connect_raises_connection_error() -> None:
         _ = HarlequinClickHouseAdapter(conn_str=("foo",)).connect()
 
 
+def test_connect_http_raises_connection_error() -> None:
+    with pytest.raises(HarlequinConnectionError):
+        _ = HarlequinClickHouseAdapter(
+            conn_str=(),
+            protocol="http",
+            host="nonexistent.invalid",
+            port="8123",
+        ).connect()
+
+
+def test_http_missing_dependency_raises_connection_error() -> None:
+    with patch.dict("sys.modules", {"clickhouse_connect": None}):
+        with pytest.raises(HarlequinConnectionError, match="harlequin-clickhouse\\[http\\]"):
+            HarlequinClickHouseAdapter(conn_str=(), protocol="http").connect()
+
+
+def test_default_port_native() -> None:
+    adapter = HarlequinClickHouseAdapter(conn_str=())
+    # Access options after they'd be processed in connect() without actually connecting
+    options = dict(adapter.options)
+    options.pop("protocol", None)
+    # Port should default to None at options level; adapter sets it to 9000 for native
+    assert options.get("port") is None
+
+
 def test_connection_handles_tuple_conn_str() -> None:
     """Test that HarlequinClickHouseConnection properly handles tuple conn_str parameter"""
     clickhouse = ClickHouseContainer("clickhouse/clickhouse-server:23.4")
     clickhouse.start()
     conn_str = clickhouse.get_connection_url()
 
-    # Test that connection works when conn_str is passed as tuple
     conn = HarlequinClickHouseConnection(conn_str=(conn_str,), options={})
     assert conn.conn_str == (conn_str,)
     assert conn.conn is not None
@@ -64,7 +108,11 @@ def test_connection_handles_tuple_conn_str() -> None:
     clickhouse.stop()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(
+    scope="module",
+    params=["native", "http"],
+    ids=["native", "http"],
+)
 def connection_setup(request):
     clickhouse = ClickHouseContainer("clickhouse/clickhouse-server:23.4")
     clickhouse.start()
@@ -73,27 +121,41 @@ def connection_setup(request):
         clickhouse.stop()
 
     request.addfinalizer(remove_container)
-    conn_str = clickhouse.get_connection_url()
-    return HarlequinClickHouseAdapter(conn_str=(conn_str,)).connect()
+
+    protocol = request.param
+    if protocol == "native":
+        conn_str = clickhouse.get_connection_url()
+        return HarlequinClickHouseAdapter(conn_str=(conn_str,)).connect()
+    else:
+        host = clickhouse.get_container_host_ip()
+        port = clickhouse.get_exposed_port(8123)
+        return HarlequinClickHouseAdapter(
+            conn_str=(),
+            protocol="http",
+            host=host,
+            port=str(port),
+            user=clickhouse.username,
+            password=clickhouse.password,
+            database=clickhouse.dbname,
+        ).connect()
 
 
-def test_get_catalog(connection_setup: HarlequinClickHouseConnection) -> None:
+def test_get_catalog(connection_setup: HarlequinConnection) -> None:
     catalog = connection_setup.get_catalog()
     assert isinstance(catalog, Catalog)
     assert catalog.items
     assert isinstance(catalog.items[0], CatalogItem)
 
 
-def test_execute_ddl(connection_setup: HarlequinClickHouseConnection) -> None:
+def test_execute_ddl(connection_setup: HarlequinConnection) -> None:
     cur = connection_setup.execute("CREATE TABLE foo (a Int16) ENGINE = Memory")
     assert cur is None
-    connection_setup.execute("DROP TABLE foo")  # some cleanup after test on teardown
+    connection_setup.execute("DROP TABLE foo")
 
 
-def test_execute_select(connection_setup: HarlequinClickHouseConnection) -> None:
+def test_execute_select(connection_setup: HarlequinConnection) -> None:
     cur = connection_setup.execute("select 1 as a")
     assert isinstance(cur, HarlequinCursor)
-    # assert cur.columns() == [("a", "##")]
     assert cur.columns() == [("a", "UInt8")]
     data = cur.fetchall()
     backend = create_backend(data)
@@ -106,7 +168,7 @@ def test_execute_select(connection_setup: HarlequinClickHouseConnection) -> None
     "DB::Exception: Different expressions with the same alias a",
 )
 def test_execute_select_dupe_cols(
-    connection_setup: HarlequinClickHouseConnection,
+    connection_setup: HarlequinConnection,
 ) -> None:
     cur = connection_setup.execute("select 1 as a, 2 as a, 3 as a")
     assert isinstance(cur, HarlequinCursor)
@@ -117,7 +179,7 @@ def test_execute_select_dupe_cols(
     assert backend.row_count == 1
 
 
-def test_set_limit(connection_setup: HarlequinClickHouseConnection) -> None:
+def test_set_limit(connection_setup: HarlequinConnection) -> None:
     cur = connection_setup.execute(
         "select 1 as a union all select 2 union all select 3",
     )
@@ -131,7 +193,23 @@ def test_set_limit(connection_setup: HarlequinClickHouseConnection) -> None:
 
 
 def test_execute_raises_query_error(
-    connection_setup: HarlequinClickHouseConnection,
+    connection_setup: HarlequinConnection,
 ) -> None:
     with pytest.raises(HarlequinQueryError):
         _ = connection_setup.execute("selec;")
+
+
+@pytest.mark.parametrize(
+    "query, returns_rows",
+    [
+        ("select 1", True),
+        ("  WITH x AS (SELECT 1) SELECT * FROM x", True),
+        ("-- comment\nSHOW TABLES", True),
+        ("/* comment */ DESCRIBE foo", True),
+        ("CREATE TABLE foo (a Int16) ENGINE = Memory", False),
+        ("INSERT INTO foo VALUES (1)", False),
+        ("DROP TABLE foo", False),
+    ],
+)
+def test_http_returns_rows(query: str, returns_rows: bool) -> None:
+    assert _returns_rows(query) is returns_rows
